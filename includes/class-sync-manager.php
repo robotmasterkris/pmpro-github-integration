@@ -66,54 +66,75 @@ class PMPro_GitHub_Sync_Manager {
             }
         }
 
-        $invite_triggered = false; 
+        $invite_triggered = false;                    
 
-        // Only PUT slugs not already present
-        foreach ($mapped_teams as $team_slug) {
-            if (!in_array($team_slug, $cached_teams)) {
-                $response = $this->github_api_request_pat("https://api.github.com/orgs/{$org}/teams/{$team_slug}/memberships/{$github_username}", array_merge(pmpro_github_http_defaults(), [
-                    'method' => 'PUT',
-                    'body' => json_encode(['role' => 'member']),
-                    'headers' => ['Content-Type' => 'application/json']
-                ]), $user_id);
-                error_log('GitHub API response: ' . print_r($response, true));
+        foreach ( $mapped_teams as $team_slug ) {
 
-                $status = wp_remote_retrieve_response_code( $response );
-                $body   = json_decode( wp_remote_retrieve_body( $response ) );
-                error_log( "GH-PUT ▶ HTTP {$status} payload=" . wp_json_encode( $body ) );
-
-                if ( $status === 202 ||                                   // “request accepted”
-                    ( $status === 200 &&                               // 200 but
-                    isset( $body->state ) && $body->state === 'pending' ) // still pending
-                ) {
-                    error_log( "GH-Pending ▶ captured, scheduling accept_invite" );
-                    // cache that an invite exists so we stop looping
-                    update_user_meta( $user_id, '_pmpro_github_invite_sent', time() );
-
-                    // queue the auto-accept job (arg must be a named array!)
-                    $job = as_enqueue_async_action(
-                        'pmpro_github_accept_invite',
-                        [ 'user_id' => $user_id ]
-                    );
-                    error_log(
-                        is_wp_error( $job )
-                            ? "GH-Enqueue ▶ " . $job->get_error_message()
-                            : "GH-Enqueue ▶ job {$job} queued (auto-invite)"
-                    );
-                    return;                                              // done for now
-                }
-
-                if ( $status === 404 || $status === 422 ) {
-                    error_log('User not found in org, sending invite.');
-                    $this->invite_user_to_org($github_username, $user_id);
-                    return;
-                }
-
-                if (is_wp_error($response)) {
-                    error_log('GitHub API error: ' . $response->get_error_message());
-                    return;
-                }
+            if ( in_array( $team_slug, $cached_teams, true ) ) {
+                continue;
             }
+
+            $response = $this->github_api_request_pat(
+                "https://api.github.com/orgs/{$org}/teams/{$team_slug}/memberships/{$github_username}",
+                array_merge(
+                    pmpro_github_http_defaults(),
+                    [
+                        'method'  => 'PUT',
+                        'body'    => wp_json_encode( [ 'role' => 'member' ] ),
+                        'headers' => [ 'Content-Type' => 'application/json' ],
+                    ]
+                ),
+                $user_id
+            );
+
+            $status = wp_remote_retrieve_response_code( $response );
+            $body   = wp_remote_retrieve_body( $response );
+            error_log( "GH-PUT ▶ HTTP {$status} payload={$body}" );
+
+            // Any status that means “membership *will* exist soon”.
+            if ( in_array( $status, [ 202, 201, 200, 404, 409, 422 ], true ) ) {
+
+                // 200 / 201 ─ success right away
+                // 202        ─ accepted, but async on GitHub’s side
+                // 404 / 409 / 422 ─ user not in org or validation conflict → invite flow
+
+                if ( in_array( $status, [ 404, 409, 422 ], true ) ) {
+                    error_log( 'User not in org – sending invite.' );
+                    $this->invite_user_to_org( $github_username, $user_id );
+                }
+
+                $invite_triggered = true;               // set flag no matter which one
+                continue;                               // try the next team right away
+            }
+
+            // Anything else we treat as a hard error.
+            if ( is_wp_error( $response ) ) {
+                error_log( 'GitHub API error: ' . $response->get_error_message() );
+            } else {
+                error_log( "GitHub unexpected status {$status}" );
+            }
+        }
+
+        /* -----------------------------------------------------------
+        * If we sent (or reused) an invitation for ANY team, enqueue
+        * one follow-up sync x minutes from now.  That follow-up will
+        * pick up extra teams once the org membership is active, or
+        * simply do nothing if everything’s already in place.
+        * ---------------------------------------------------------- */
+        if ( $invite_triggered ) {
+
+            $job = as_schedule_single_action(
+                time() + 300,                             // 5 min
+                'pmpro_github_sync_user',
+                [ 'user_id' => $user_id ],
+                'pmpro_github'                            // optional custom group
+            );
+
+            error_log(
+                is_wp_error( $job )
+                    ? 'GH-Enqueue ▶ ' . $job->get_error_message()
+                    : "GH-Enqueue ▶ follow-up job {$job} queued"
+            );
         }
     }
 
