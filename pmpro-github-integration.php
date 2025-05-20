@@ -2,7 +2,7 @@
 /**
  * Plugin Name: PMPro GitHub Integration
  * Description: Integrates Paid Memberships Pro (PMPro) with GitHub Organizations, automating GitHub org invites and team assignments based on membership levels.
- * Version: 1.1.0
+ * Version: 1.1.1
  * Author: Kris Longmore
  * License: GPL2
  * Text Domain: pmpro-github-integration
