@@ -37,11 +37,17 @@ class PMPro_GitHub_Shortcodes {
         }
 
         $teams = json_decode(wp_remote_retrieve_body($response));
-        $team_names = wp_list_pluck($teams, 'name');
-
-        set_transient('pmpro_github_user_teams_' . $user_id, $team_names, 300);
-
-        return $team_names;
+        $org = get_option('pmpro_github_org_name');
+        $filtered_teams = array();
+        if (is_array($teams) || is_object($teams)) {
+            foreach ($teams as $team) {
+                if (isset($team->organization) && isset($team->organization->login) && strtolower($team->organization->login) === strtolower($org)) {
+                    $filtered_teams[] = $team->name;
+                }
+            }
+        }
+        set_transient('pmpro_github_user_teams_' . $user_id, $filtered_teams, 300);
+        return $filtered_teams;
     }
 
     public function render_github_connect_button() {
@@ -58,6 +64,12 @@ class PMPro_GitHub_Shortcodes {
 
         if ($github_username) {
             $teams = $this->get_user_teams($user_id);
+            $reconnect_needed = get_user_meta($user_id, '_pmpro_github_reconnect_needed', true);
+            if ($reconnect_needed) {
+                # get_user_teams() may set the reconnect_needed flag again
+                $oauth_url = esc_url(add_query_arg('pmpro_github_oauth', '1', home_url()));
+                return '<a href="' . $oauth_url . '" class="button pmpro-gh-alert">' . esc_html__('Reconnect GitHub Account', 'pmpro-github') . '</a>';
+            }
             $team_list = !empty($teams) ? implode(', ', array_map('esc_html', $teams)) : esc_html__('No teams found', 'pmpro-github');
 
             $invite_pending = (int)get_user_meta($user_id, '_pmpro_github_invite_pending', true);

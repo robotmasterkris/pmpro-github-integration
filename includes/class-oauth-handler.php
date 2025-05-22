@@ -29,46 +29,51 @@ class PMPro_GitHub_OAuth_Handler {
         if ( ! isset( $_GET['pmpro_github_oauth'] ) ) {
             return;
         }
-        error_log( 'GH-OAuth ▶ param detected: pmpro_github_oauth=1' );
+        if (PMPRO_GITHUB_VERBOSE) error_log( 'GH-OAuth ▶ param detected: pmpro_github_oauth=1' );
 
         /* 1.  logged-in check */
         if ( ! is_user_logged_in() ) {
-            error_log( 'GH-OAuth ▶ NOT logged in – sending to wp-login' );
+            if (PMPRO_GITHUB_VERBOSE) error_log( 'GH-OAuth ▶ NOT logged in – sending to wp-login' );
             wp_safe_redirect( wp_login_url( home_url( $_SERVER['REQUEST_URI'] ) ) );
             exit;
         }
 
         $user_id = get_current_user_id();
-        error_log( 'GH-OAuth ▶ user_id = ' . $user_id );
+        if (PMPRO_GITHUB_VERBOSE) error_log( 'GH-OAuth ▶ user_id = ' . $user_id );
+		
+		// if any followup sync jobs were scheduled, remove them at start of OAuth flow
+		if( get_user_meta( $user_id, '_pmpro_github_followup_scheduled', true )) {
+			delete_user_meta( $user_id, '_pmpro_github_followup_scheduled' );
+		}
 
         /* 2.  linked / reconnect flags */
         $is_linked       = (bool) get_user_meta( $user_id, '_pmpro_github_username', true )
                         && (bool) get_user_meta( $user_id, '_pmpro_github_token',   true );
         $needs_reconnect = (bool) get_user_meta( $user_id, '_pmpro_github_reconnect_needed', true );
 
-        error_log( 'GH-OAuth ▶ is_linked=' . var_export( $is_linked, true ) .
+        if (PMPRO_GITHUB_VERBOSE) error_log( 'GH-OAuth ▶ is_linked=' . var_export( $is_linked, true ) .
                 ' | needs_reconnect=' . var_export( $needs_reconnect, true ) );
 
         if ( $is_linked && ! $needs_reconnect ) {
             $clean = remove_query_arg( 'pmpro_github_oauth', home_url( $_SERVER['REQUEST_URI'] ) );
-            error_log( 'GH-OAuth ▶ already linked, stripping param → ' . $clean );
+            if (PMPRO_GITHUB_VERBOSE) error_log( 'GH-OAuth ▶ already linked, stripping param → ' . $clean );
             wp_safe_redirect( $clean );
             exit;
         }
 
         /* 3.  duplicate handshake guard */
         if ( get_transient( 'pmpro_github_oauth_in_progress_' . $user_id ) ) {
-            error_log( 'GH-OAuth ▶ in-progress transient found – aborting' );
+            if (PMPRO_GITHUB_VERBOSE) error_log( 'GH-OAuth ▶ in-progress transient found – aborting' );
             wp_safe_redirect( home_url( '/github-linked-error' ) );
             exit;
         }
         set_transient( 'pmpro_github_oauth_in_progress_' . $user_id, true, 300 );
-        error_log( 'GH-OAuth ▶ transient set, proceeding to GitHub' );
+        if (PMPRO_GITHUB_VERBOSE) error_log( 'GH-OAuth ▶ transient set, proceeding to GitHub' );
 
         /* 4.  save clean return-to URL */
         $return_url = remove_query_arg( 'pmpro_github_oauth', home_url( $_SERVER['REQUEST_URI'] ) );
         set_transient( 'pmpro_github_oauth_redirect_' . $user_id, $return_url, 300 );
-        error_log( 'GH-OAuth ▶ return_url = ' . $return_url );
+        if (PMPRO_GITHUB_VERBOSE) error_log( 'GH-OAuth ▶ return_url = ' . $return_url );
 
         /* 5.  build authorise URL & redirect */
         $state = wp_generate_password( 24, false );
@@ -84,7 +89,7 @@ class PMPro_GitHub_OAuth_Handler {
             'https://github.com/login/oauth/authorize'
         );
 
-        error_log( 'GH-OAuth ▶ redirecting to GitHub: ' . $oauth_url );
+        if (PMPRO_GITHUB_VERBOSE) error_log( 'GH-OAuth ▶ redirecting to GitHub: ' . $oauth_url );
         wp_safe_redirect( $oauth_url );
         exit;
     }
@@ -116,13 +121,13 @@ class PMPro_GitHub_OAuth_Handler {
 		 * 2-b.  Exchange code → access token
 		 * ------------------------------------------------------------- */
 		if ( empty( $_GET['code'] ) ) {
-			error_log( 'OAuth code missing in callback.' );
+			if (PMPRO_GITHUB_VERBOSE) error_log( 'OAuth code missing in callback.' );
 			wp_safe_redirect( home_url( '/github-linked-error' ) );
 			exit;
 		}
 
 		$code = sanitize_text_field( $_GET['code'] );
-		error_log( 'OAuth code received: ' . $code );
+		if (PMPRO_GITHUB_VERBOSE) error_log( 'OAuth code received: ' . $code );
 
 		$token_resp = wp_remote_post(
 			'https://github.com/login/oauth/access_token',
@@ -140,13 +145,13 @@ class PMPro_GitHub_OAuth_Handler {
 		);
 
 		if ( is_wp_error( $token_resp ) ) {
-			error_log( 'OAuth access token error: ' . $token_resp->get_error_message() );
+			if (PMPRO_GITHUB_VERBOSE) error_log( 'OAuth access token error: ' . $token_resp->get_error_message() );
 			wp_safe_redirect( home_url( '/github-linked-error' ) );
 			exit;
 		}
 
 		$token_body = json_decode( wp_remote_retrieve_body( $token_resp ) );
-		error_log( 'OAuth access token response: ' . print_r( $token_body, true ) );
+		if (PMPRO_GITHUB_VERBOSE) error_log( 'OAuth access token response: ' . print_r( $token_body, true ) );
 
 		if ( wp_remote_retrieve_response_code( $token_resp ) !== 200 ||
 		     empty( $token_body->access_token )
@@ -169,18 +174,18 @@ class PMPro_GitHub_OAuth_Handler {
 		);
 
 		if ( is_wp_error( $user_resp ) ) {
-			error_log( 'GitHub user request error: ' . $user_resp->get_error_message() );
+			if (PMPRO_GITHUB_VERBOSE) error_log( 'GitHub user request error: ' . $user_resp->get_error_message() );
 			wp_safe_redirect( home_url( '/github-linked-error' ) );
 			exit;
 		}
 
 		$user_data = json_decode( wp_remote_retrieve_body( $user_resp ) );
-		error_log( 'GitHub user data response: ' . print_r( $user_data, true ) );
 
 		if ( empty( $user_data->login ) ) {
 			wp_safe_redirect( home_url( '/github-linked-error' ) );
 			exit;
 		}
+		if (PMPRO_GITHUB_VERBOSE) error_log( 'GitHub user data response: ' . print_r( $user_data->login, true ) );
 
 		/* -------------------------------------------------------------
 		 * 2-d.  Store username & token
@@ -207,7 +212,7 @@ class PMPro_GitHub_OAuth_Handler {
 			$redirect_back = home_url( '/account-details/' );
 		}
 
-		error_log( 'Redirecting user back to: ' . $redirect_back );
+		if (PMPRO_GITHUB_VERBOSE) error_log( 'Redirecting user back to: ' . $redirect_back );
 		wp_safe_redirect( $redirect_back );
 		exit;
 	}

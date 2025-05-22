@@ -140,6 +140,12 @@ class PMPro_GitHub_Admin_Settings {
 
                 <div id="linked-users" class="tab-content" style="display:none;">
                     <h3>GitHub Linked Users</h3>
+                    <form method="post" action="">
+                        <input type="hidden" name="pmpro_github_bulk_sync" value="1" />
+                        <button type="submit" class="button button-primary" id="pmpro-github-bulk-sync-btn" style="margin-bottom: 16px;">Bulk Sync All Members</button>
+                        <button type="button" class="button" id="pmpro-github-cancel-sync-btn" style="margin-bottom: 16px; margin-left: 8px;" disabled>Cancel Sync</button>
+                    </form>
+                    <div id="pmpro-github-bulk-sync-msg" style="margin-bottom: 16px; display:none;"></div>
                     <table class="widefat fixed">
                         <thead>
                             <tr>
@@ -188,6 +194,40 @@ class PMPro_GitHub_Admin_Settings {
                     $($(this).attr('href')).show();
                 });
                 $('select[multiple]').select2();
+
+                // Bulk sync/cancel logic
+                function checkBulkSyncStatus() {
+                    $.post(ajaxurl, { action: 'pmpro_github_bulk_sync_status' }, function(response) {
+                        if (response.success && response.data.in_progress) {
+                            $('#pmpro-github-cancel-sync-btn').prop('disabled', false);
+                        } else {
+                            $('#pmpro-github-cancel-sync-btn').prop('disabled', true);
+                        }
+                    });
+                }
+                checkBulkSyncStatus();
+                setInterval(checkBulkSyncStatus, 10000); // poll every 10s
+
+                // Show message after bulk sync starts
+                $('form').on('submit', function(e) {
+                    if ($(this).find('input[name="pmpro_github_bulk_sync"]').length) {
+                        $('#pmpro-github-bulk-sync-msg').html('Bulk sync has started. You can safely navigate away from this page; jobs will continue to execute in the background.').show();
+                    }
+                });
+
+                // Cancel sync button
+                $('#pmpro-github-cancel-sync-btn').on('click', function() {
+                    if (confirm('Are you sure you want to cancel all pending bulk sync jobs?')) {
+                        $.post(ajaxurl, { action: 'pmpro_github_cancel_bulk_sync' }, function(response) {
+                            if (response.success) {
+                                alert('Pending bulk sync jobs have been cancelled.');
+                                $('#pmpro-github-cancel-sync-btn').prop('disabled', true);
+                            } else {
+                                alert('Failed to cancel jobs: ' + response.data);
+                            }
+                        });
+                    }
+                });
             });
 
             function testGitHubAPIConnection() {
@@ -311,4 +351,50 @@ add_action('admin_post_pmpro_github_manual_disconnect', function() {
 
     wp_redirect(admin_url('admin.php?page=pmpro-github-integration#linked-users'));
     exit;
+});
+
+// Handle bulk sync POST from Linked Users tab
+add_action('admin_init', function() {
+    if (
+        isset($_POST['pmpro_github_bulk_sync']) &&
+        current_user_can('manage_options')
+    ) {
+        do_action('pmpro_github_batch_sync');
+        add_action('admin_notices', function() {
+            echo '<div class="notice notice-success is-dismissible"><p>Bulk GitHub sync has been started. This may take a few minutes depending on the number of users.</p></div>';
+        });
+        // Prevent resubmission on refresh
+        wp_redirect(add_query_arg('pmpro_github_bulk_sync_started', '1', wp_get_referer()));
+        exit;
+    }
+});
+
+// AJAX handler to check if bulk sync is in progress
+add_action('wp_ajax_pmpro_github_bulk_sync_status', function() {
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
+    // Check for pending pmpro_github_bulk or pmpro_github_sync_user jobs
+    if (function_exists('as_get_scheduled_actions')) {
+        $pending = as_get_scheduled_actions([
+            'hook' => ['pmpro_github_bulk', 'pmpro_github_sync_user'],
+            'status' => ActionScheduler_Store::STATUS_PENDING,
+            'per_page' => 1
+        ]);
+        $in_progress = !empty($pending);
+        wp_send_json_success(['in_progress' => $in_progress]);
+    } else {
+        wp_send_json_success(['in_progress' => false]);
+    }
+});
+
+// AJAX handler to cancel all pending bulk sync jobs
+add_action('wp_ajax_pmpro_github_cancel_bulk_sync', function() {
+    if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
+    if (function_exists('as_unschedule_all_actions')) {
+        // Remove all pending pmpro_github_bulk and pmpro_github_sync_user jobs
+        as_unschedule_all_actions('pmpro_github_bulk');
+        as_unschedule_all_actions('pmpro_github_sync_user');
+        wp_send_json_success();
+    } else {
+        wp_send_json_error('Action Scheduler not available');
+    }
 });
