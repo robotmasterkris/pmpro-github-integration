@@ -67,6 +67,7 @@ class PMPro_GitHub_Admin_Settings {
                 <a href="#linked-users" class="nav-tab">GitHub Linked Users</a>
             </h2>
 
+            <!-- Only wrap General and Team Mapping in the main form -->
             <form method="post" action="options.php">
                 <?php
                 settings_fields('pmpro_github_settings');
@@ -138,50 +139,51 @@ class PMPro_GitHub_Admin_Settings {
                     ?>
                 </div>
 
-                <div id="linked-users" class="tab-content" style="display:none;">
-                    <h3>GitHub Linked Users</h3>
-                    <form method="post" action="">
-                        <input type="hidden" name="pmpro_github_bulk_sync" value="1" />
-                        <button type="submit" class="button button-primary" id="pmpro-github-bulk-sync-btn" style="margin-bottom: 16px;">Bulk Sync All Members</button>
-                        <button type="button" class="button" id="pmpro-github-cancel-sync-btn" style="margin-bottom: 16px; margin-left: 8px;" disabled>Cancel Sync</button>
-                    </form>
-                    <div id="pmpro-github-bulk-sync-msg" style="margin-bottom: 16px; display:none;"></div>
-                    <table class="widefat fixed">
-                        <thead>
-                            <tr>
-                                <th>WordPress Username</th>
-                                <th>GitHub Username</th>
-                                <th>PMPro Level(s)</th>
-                                <th>Current GitHub Team(s)</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php
-                            $users = get_users(array('meta_key' => '_pmpro_github_username'));
-                            // Update Disconnect button with confirmation prompt
-                            foreach ($users as $user) {
-                                $github_username = get_user_meta($user->ID, '_pmpro_github_username', true);
-                                $levels = pmpro_getMembershipLevelsForUser($user->ID);
-                                $level_names = wp_list_pluck($levels, 'name');
-                                echo '<tr>';
-                                echo '<td>' . esc_html($user->user_login) . '</td>';
-                                echo '<td>' . esc_html($github_username) . '</td>';
-                                echo '<td>' . esc_html(implode(', ', $level_names)) . '</td>';
-                                echo '<td>...</td>'; // Placeholder for current GitHub teams
-                                echo '<td>
-                                    <a href="' . admin_url('admin-post.php?action=pmpro_github_manual_sync&user_id=' . $user->ID) . '" class="button">Re-sync</a>
-                                    <a href="' . admin_url('admin-post.php?action=pmpro_github_manual_disconnect&user_id=' . $user->ID) . '" class="button" style="background-color:#dc3545;color:#fff;" onclick="return confirm(\'Are you sure you want to disconnect this user from GitHub?\');">Disconnect</a>
-                                </td>';
-                                echo '</tr>';
-                            }
-                            ?>
-                        </tbody>
-                    </table>
-                </div>
-
                 <?php submit_button(); ?>
             </form>
+
+            <!-- Linked Users tab is outside the main form -->
+            <div id="linked-users" class="tab-content" style="display:none;">
+                <h3>GitHub Linked Users</h3>
+                <form method="post" action="">
+                    <input type="hidden" name="pmpro_github_bulk_sync" value="1" />
+                    <button type="submit" class="button button-primary" id="pmpro-github-bulk-sync-btn" style="margin-bottom: 16px;">Bulk Sync All Members</button>
+                    <button type="button" class="button" id="pmpro-github-cancel-sync-btn" style="margin-bottom: 16px; margin-left: 8px;" disabled>Cancel Sync</button>
+                </form>
+                <div id="pmpro-github-bulk-sync-msg" style="margin-bottom: 16px; display:none;"></div>
+                <table class="widefat fixed">
+                    <thead>
+                        <tr>
+                            <th>WordPress Username</th>
+                            <th>GitHub Username</th>
+                            <th>PMPro Level(s)</th>
+                            <th>Current GitHub Team(s)</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php
+                        $users = get_users(array('meta_key' => '_pmpro_github_username'));
+                        // Update Disconnect button with confirmation prompt
+                        foreach ($users as $user) {
+                            $github_username = get_user_meta($user->ID, '_pmpro_github_username', true);
+                            $levels = pmpro_getMembershipLevelsForUser($user->ID);
+                            $level_names = wp_list_pluck($levels, 'name');
+                            echo '<tr>';
+                            echo '<td>' . esc_html($user->user_login) . '</td>';
+                            echo '<td>' . esc_html($github_username) . '</td>';
+                            echo '<td>' . esc_html(implode(', ', $level_names)) . '</td>';
+                            echo '<td>...</td>'; // Placeholder for current GitHub teams
+                            echo '<td>
+                                <a href="' . admin_url('admin-post.php?action=pmpro_github_manual_sync&user_id=' . $user->ID) . '" class="button">Re-sync</a>
+                                <a href="' . admin_url('admin-post.php?action=pmpro_github_manual_disconnect&user_id=' . $user->ID) . '" class="button" style="background-color:#dc3545;color:#fff;" onclick="return confirm(\'Are you sure you want to disconnect this user from GitHub?\');">Disconnect</a>
+                            </td>';
+                            echo '</tr>';
+                        }
+                        ?>
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <script>
